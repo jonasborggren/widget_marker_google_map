@@ -2,7 +2,6 @@ import 'dart:typed_data';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
 
 import '../../widget_marker_google_map.dart';
 
@@ -22,46 +21,59 @@ class MarkerGenerator extends StatefulWidget {
 class _MarkerGeneratorState extends State<MarkerGenerator> {
   List<GlobalKey> globalKeys = [];
   List<WidgetMarker> lastMarkers = [];
+  bool wasError = false;
+  late Future<List<Pair<RepaintBoundary, Marker>>> future;
 
-  Future<Marker> _convertToMarker(GlobalKey key) async {
-    RenderRepaintBoundary boundary =
-        key.currentContext!.findRenderObject()! as RenderRepaintBoundary;
-    final image = await boundary.toImage(pixelRatio: 2);
-    final byteData =
-        await image.toByteData(format: ImageByteFormat.png) ?? ByteData(0);
+  Future<Pair<RepaintBoundary, Marker>> _convertToMarker(RepaintBoundary boundary, WidgetMarker widgetMarker) async {
+    final image = await boundary.createRenderObject(context).toImage(pixelRatio: 2);
+    final byteData = await image.toByteData(format: ImageByteFormat.png) ?? ByteData(0);
     final uint8List = byteData.buffer.asUint8List();
-    final widgetMarker = widget.widgetMarkers[globalKeys.indexOf(key)];
-    return Marker(
-      onTap: widgetMarker.onTap,
-      markerId: MarkerId(widgetMarker.markerId),
-      position: widgetMarker.position,
-      icon: BitmapDescriptor.fromBytes(uint8List),
-      draggable: widgetMarker.draggable,
-      infoWindow: widgetMarker.infoWindow,
-      rotation: widgetMarker.rotation,
-      visible: widgetMarker.visible,
-      zIndex: widgetMarker.zIndex,
-      onDragStart: widgetMarker.onDragStart,
-      onDragEnd: widgetMarker.onDragEnd,
-      onDrag: widgetMarker.onDrag,
-    );
+    return Pair(
+        boundary,
+        Marker(
+          onTap: widgetMarker.onTap,
+          markerId: MarkerId(widgetMarker.markerId),
+          position: widgetMarker.position,
+          icon: BitmapDescriptor.fromBytes(uint8List),
+          draggable: widgetMarker.draggable,
+          infoWindow: widgetMarker.infoWindow,
+          rotation: widgetMarker.rotation,
+          visible: widgetMarker.visible,
+          zIndex: widgetMarker.zIndex,
+          onDragStart: widgetMarker.onDragStart,
+          onDragEnd: widgetMarker.onDragEnd,
+          onDrag: widgetMarker.onDrag,
+        ));
   }
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance?.addPostFrameCallback((_) => onBuildCompleted());
+    WidgetsBinding.instance.addPostFrameCallback((_) => onBuildCompleted());
+    future = Future.wait(
+      widget.widgetMarkers.map(
+        (widgetMarker) {
+          return _convertToMarker(RepaintBoundary(child: widgetMarker.widget), widgetMarker);
+        },
+      ),
+    );
   }
 
   Future<void> onBuildCompleted() async {
     /// Skip when there's no change in widgetMarkers.
-    if (lastMarkers == widget.widgetMarkers) {
+    if (lastMarkers == widget.widgetMarkers && !wasError) {
       return;
     }
+    wasError = false;
     lastMarkers = widget.widgetMarkers;
-    final markers =
-        await Future.wait(globalKeys.map((key) => _convertToMarker(key)));
-    widget.onMarkerGenerated.call(markers);
+
+    // final markers = await Future.wait(globalKeys.map((key) => _convertToMarker(key))).onError((error, stacktrace) {
+    //   debugPrint("marker error: $error");
+    //   debugPrint("marker error: $stacktrace");
+    //   wasError = true;
+    //   return [];
+    // });
+    // widget.onMarkerGenerated.call(markers);
   }
 
   @override
@@ -74,18 +86,20 @@ class _MarkerGeneratorState extends State<MarkerGenerator> {
         -MediaQuery.of(context).size.width,
         -MediaQuery.of(context).size.height,
       ),
-      child: Stack(
-        children: widget.widgetMarkers.map(
-          (widgetMarker) {
-            final key = GlobalKey();
-            globalKeys.add(key);
-            return RepaintBoundary(
-              key: key,
-              child: widgetMarker.widget,
-            );
-          },
-        ).toList(),
+      child: FutureBuilder<List<Pair<RepaintBoundary, Marker>>>(
+        future: future,
+        builder: (context, snapshot) {
+          final pairs = snapshot.data ?? [];
+          widget.onMarkerGenerated.call(pairs.map((e) => e.second).toList());
+          return Stack(children: pairs.map((e) => e.first).toList());
+        },
       ),
     );
   }
+}
+
+class Pair<A, B> {
+  Pair(this.first, this.second);
+  final A first;
+  final B second;
 }

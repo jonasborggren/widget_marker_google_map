@@ -1,10 +1,6 @@
-import 'dart:ui';
-
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
-import 'package:flutter/scheduler.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:widget_marker_google_map/src/components/widget_marker.dart';
 
@@ -223,11 +219,8 @@ class _WidgetMarkerGoogleMapState extends State<WidgetMarkerGoogleMap> {
           MarkerGenerator(
             widgetMarkers: widget.widgetMarkers,
             onMarkerGenerated: (_markers) {
-              setState(
-                () {
-                  markers = _markers.toSet();
-                },
-              );
+              markers = _markers.toSet();
+              //if (mounted) setState(() {});
             },
           ),
         GoogleMap(
